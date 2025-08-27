@@ -712,7 +712,6 @@ main(int argc, char *argv[])
     }
 
     if (sgx_mode) {
-        option.size_level = 0;
         option.is_sgx_platform = true;
     }
 
