@@ -3141,23 +3141,33 @@ aot_create_comp_context(const AOTCompData *comp_data, aot_comp_option_t option)
             goto fail;
         }
 
-        /* Set code model */
-        if (size_level == 0)
-            code_model = LLVMCodeModelLarge;
-        else if (size_level == 1)
-            code_model = LLVMCodeModelMedium;
-        else if (size_level == 2)
-            code_model = LLVMCodeModelKernel;
-        else
-            code_model = LLVMCodeModelSmall;
 
-        /* Create the target machine */
-        if (!(comp_ctx->target_machine = LLVMCreateTargetMachineWithOpts(
-                  target, triple_norm, cpu, features, opt_level,
-                  LLVMRelocStatic, code_model, false,
-                  comp_ctx->stack_usage_file))) {
-            aot_set_last_error("create LLVM target machine failed.");
-            goto fail;
+        /* Use PIC+Small code model for x86_64 only if option->is_sgx_platform is set */
+        if (option && option->is_sgx_platform && triple_norm && strstr(triple_norm, "x86_64")) {
+            code_model = LLVMCodeModelSmall;
+            if (!(comp_ctx->target_machine = LLVMCreateTargetMachineWithOpts(
+                      target, triple_norm, cpu, features, opt_level,
+                      LLVMRelocPIC, code_model, false,
+                      comp_ctx->stack_usage_file))) {
+                aot_set_last_error("create LLVM target machine failed.");
+                goto fail;
+            }
+        } else {
+            if (size_level == 0)
+                code_model = LLVMCodeModelLarge;
+            else if (size_level == 1)
+                code_model = LLVMCodeModelMedium;
+            else if (size_level == 2)
+                code_model = LLVMCodeModelKernel;
+            else
+                code_model = LLVMCodeModelSmall;
+            if (!(comp_ctx->target_machine = LLVMCreateTargetMachineWithOpts(
+                      target, triple_norm, cpu, features, opt_level,
+                      LLVMRelocStatic, code_model, false,
+                      comp_ctx->stack_usage_file))) {
+                aot_set_last_error("create LLVM target machine failed.");
+                goto fail;
+            }
         }
 
         /* If only to create target machine for querying information, early stop
