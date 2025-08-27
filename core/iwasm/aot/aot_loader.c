@@ -4269,9 +4269,10 @@ create_sections(AOTModule *module, const uint8 *buf, uint32 size,
                     total_size =
                         (uint64)section_size + aot_get_plt_table_size();
                     total_size = (total_size + 3) & ~((uint64)3);
+                    /* Allocate text RW first (no EXEC) for relocation/write, will mprotect to RX after load */
                     if (total_size >= UINT32_MAX
                         || !(aot_text =
-                                 loader_mmap((uint32)total_size, true,
+                                 loader_mmap((uint32)total_size, false,
                                              error_buf, error_buf_size))) {
                         wasm_runtime_free(section);
                         goto fail;
@@ -4382,6 +4383,18 @@ load(const uint8 *buf, uint32 size, AOTModule *module,
         /* If load_from_sections() succeeds, then aot text is set to
            module->code and will be destroyed in aot_unload() */
         destroy_sections(section_list, false);
+
+        /* Enforce W^X: make code region RX now that relocations are applied.
+           Skip if indirect mode (code not mmapped here) or merged layout already
+           handled earlier. */
+        if (!module->is_indirect_mode && !module->merged_data_text_sections
+            && module->code && module->code_size > 0) {
+            if (os_mprotect(module->code, module->code_size,
+                            MMAP_PROT_READ | MMAP_PROT_EXEC)
+                != 0) {
+                LOG_WARNING("Warning: failed to set code pages RX (W^X)");
+            }
+        }
     }
 
 #if 0
