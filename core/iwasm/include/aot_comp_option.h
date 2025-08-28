@@ -93,6 +93,8 @@ typedef struct AOTCompOption {
     const char *stack_usage_file;
     const char *llvm_passes;
     const char *builtin_intrinsics;
+    /* Relocation mode override: 0=auto, 1=static, 2=pic */
+    uint32_t reloc_mode;
 } AOTCompOption, *aot_comp_option_t;
 
 #ifdef __cplusplus
