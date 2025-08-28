@@ -363,10 +363,12 @@ aot_build_precheck_function(AOTCompContext *comp_ctx, LLVMModuleRef module,
     }
 
     /*
-     * load the value for this wrapped function from the stack_sizes array
+     * Always load the value for this wrapped function from the runtime
+     * instance's extra area (indirect path) to avoid creating direct
+     * text -> .aot_stack_sizes relocations in static builds.
      */
     LLVMValueRef stack_sizes;
-    if (comp_ctx->is_indirect_mode) {
+    {
         uint32 offset_u32;
         LLVMValueRef offset;
         LLVMValueRef stack_sizes_p;
@@ -377,20 +379,17 @@ aot_build_precheck_function(AOTCompContext *comp_ctx, LLVMModuleRef module,
         if (!offset) {
             goto fail;
         }
-        stack_sizes_p =
-            LLVMBuildInBoundsGEP2(b, INT8_TYPE, func_ctx->aot_inst, &offset, 1,
-                                  "aot_inst_stack_sizes_p");
+        stack_sizes_p = LLVMBuildInBoundsGEP2(b, INT8_TYPE, func_ctx->aot_inst,
+                                              &offset, 1,
+                                              "aot_inst_stack_sizes_p");
         if (!stack_sizes_p) {
             goto fail;
         }
-        stack_sizes =
-            LLVMBuildLoad2(b, INT32_PTR_TYPE, stack_sizes_p, "stack_sizes");
+        stack_sizes = LLVMBuildLoad2(b, INT32_PTR_TYPE, stack_sizes_p,
+                                     "stack_sizes");
         if (!stack_sizes) {
             goto fail;
         }
-    }
-    else {
-        stack_sizes = comp_ctx->stack_sizes;
     }
     LLVMValueRef func_index_const = I32_CONST(func_index);
     LLVMValueRef sizes =
