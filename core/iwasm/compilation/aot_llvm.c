@@ -3150,22 +3150,23 @@ aot_create_comp_context(const AOTCompData *comp_data, aot_comp_option_t option)
         else
             code_model = LLVMCodeModelSmall;
 
-        if (option && option->is_sgx_platform && triple_norm && strstr(triple_norm, "x86_64")) {
-            if (!(comp_ctx->target_machine = LLVMCreateTargetMachineWithOpts(
-                      target, triple_norm, cpu, features, opt_level,
-                      LLVMRelocPIC, code_model, false,
-                      comp_ctx->stack_usage_file))) {
-                aot_set_last_error("create LLVM target machine failed.");
-                goto fail;
+        /* Decide relocation mode */
+        LLVMRelocMode reloc_mode = LLVMRelocStatic;
+        if (option) {
+            if (option->reloc_mode == 1) /* static */
+                reloc_mode = LLVMRelocStatic;
+            else if (option->reloc_mode == 2) /* pic */
+                reloc_mode = LLVMRelocPIC;
+            else { /* auto */
+                if (option->is_sgx_platform && triple_norm && strstr(triple_norm, "x86_64"))
+                    reloc_mode = LLVMRelocPIC;
             }
-        } else {
-            if (!(comp_ctx->target_machine = LLVMCreateTargetMachineWithOpts(
-                      target, triple_norm, cpu, features, opt_level,
-                      LLVMRelocStatic, code_model, false,
-                      comp_ctx->stack_usage_file))) {
-                aot_set_last_error("create LLVM target machine failed.");
-                goto fail;
-            }
+        }
+        if (!(comp_ctx->target_machine = LLVMCreateTargetMachineWithOpts(
+                  target, triple_norm, cpu, features, opt_level, reloc_mode,
+                  code_model, false, comp_ctx->stack_usage_file))) {
+            aot_set_last_error("create LLVM target machine failed.");
+            goto fail;
         }
 
         /* If only to create target machine for querying information, early stop

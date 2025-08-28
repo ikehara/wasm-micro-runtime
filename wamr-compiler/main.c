@@ -194,6 +194,7 @@ print_help()
     printf("                            flags can be: i32.load, i64.load, f32.load, f64.load, v128.load,\n");
     printf("                                          i32.store, i64.store, f32.store, f64.store, v128.store\n");
     printf("                            Use comma to separate, e.g. --enable-segue=i32.load,i64.store\n");
+    printf("  --reloc-mode=<mode>       Force relocation model: static|pic (default auto; SGX x86_64 auto->pic)\n");
     printf("                            and --enable-segue means all flags are added.\n");
     printf("  --emit-custom-sections=<section names>\n");
     printf("                            Emit the specified custom sections to AoT file, using comma to separate\n");
@@ -419,6 +420,7 @@ main(int argc, char *argv[])
     option.enable_ref_types = true;
     option.enable_gc = false;
     aot_call_stack_features_init_default(&option.call_stack_features);
+    option.reloc_mode = 0; /* auto */
 
     /* Process options */
     for (argc--, argv++; argc > 0 && argv[0][0] == '-'; argc--, argv++) {
@@ -477,6 +479,15 @@ main(int argc, char *argv[])
         }
         else if (!strcmp(argv[0], "-sgx")) {
             sgx_mode = true;
+        }
+        else if (!strncmp(argv[0], "--reloc-mode=", 13)) {
+            const char *m = argv[0] + 13;
+            if (!strcmp(m, "static"))
+                option.reloc_mode = 1;
+            else if (!strcmp(m, "pic"))
+                option.reloc_mode = 2;
+            else
+                PRINT_HELP_AND_EXIT();
         }
         else if (!strncmp(argv[0], "--bounds-checks=", 16)) {
             option.bounds_checks = (atoi(argv[0] + 16) == 1) ? 1 : 0;
