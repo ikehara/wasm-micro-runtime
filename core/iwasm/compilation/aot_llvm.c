@@ -2557,6 +2557,7 @@ aot_create_comp_context(const AOTCompData *comp_data, aot_comp_option_t option)
     uint32 opt_level, size_level, i;
     LLVMCodeModel code_model;
     LLVMTargetDataRef target_data_ref;
+    LLVMRelocMode reloc_mode;
 
     /* Allocate memory */
     if (!(comp_ctx = wasm_runtime_malloc(sizeof(AOTCompContext)))) {
@@ -3141,17 +3142,7 @@ aot_create_comp_context(const AOTCompData *comp_data, aot_comp_option_t option)
             goto fail;
         }
 
-        if (size_level == 0)
-            code_model = LLVMCodeModelLarge;
-        else if (size_level == 1)
-            code_model = LLVMCodeModelMedium;
-        else if (size_level == 2)
-            code_model = LLVMCodeModelKernel;
-        else
-            code_model = LLVMCodeModelSmall;
-
-        /* Decide relocation mode */
-        LLVMRelocMode reloc_mode = LLVMRelocStatic;
+        reloc_mode = LLVMRelocStatic;
         if (option) {
             if (option->reloc_mode == 1) /* static */
                 reloc_mode = LLVMRelocStatic;
@@ -3162,6 +3153,20 @@ aot_create_comp_context(const AOTCompData *comp_data, aot_comp_option_t option)
                     reloc_mode = LLVMRelocPIC;
             }
         }
+        os_printf("  reloc mode:    %s\n", reloc_mode == LLVMRelocStatic ? "static" : "pic");
+
+        if (size_level == 0)
+            code_model = LLVMCodeModelLarge;
+        else if (size_level == 1)
+            code_model = LLVMCodeModelMedium;
+        else if (size_level == 2)
+            code_model = LLVMCodeModelKernel;
+        else {
+            code_model = LLVMCodeModelSmall;
+            if (option->is_sgx_platform && reloc_mode != LLVMRelocPIC)
+                code_model = LLVMCodeModelLarge;
+        }
+
         if (!(comp_ctx->target_machine = LLVMCreateTargetMachineWithOpts(
                   target, triple_norm, cpu, features, opt_level, reloc_mode,
                   code_model, false, comp_ctx->stack_usage_file))) {
