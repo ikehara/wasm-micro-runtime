@@ -469,11 +469,118 @@ aot_check_memory_overflow(AOTCompContext *comp_ctx, AOTFuncContext *func_ctx,
         ADD_BASIC_BLOCK(check_succ, "check_succ");
         LLVMMoveBasicBlockAfter(check_succ, block_curr);
 
+#ifdef WAMR_MEMORY_OOB_TRACE
+        /*
+         * Debug instrumentation:
+         *  cmp == true  => OOB; we want to log (offset1, mem_check_bound, bytes)
+         *  Original code emits a conditional branch via aot_emit_exception().
+         *  Here we split the taken path so we can inject a log call before
+         *  raising the exception. Enabled only when WAMR_MEMORY_OOB_TRACE is defined.
+         */
+        do {
+            LLVMBasicBlockRef oob_report_block;
+            ADD_BASIC_BLOCK(oob_report_block, "oob_report");
+            LLVMMoveBasicBlockAfter(oob_report_block, block_curr);
+
+            /* Build the branch: if (cmp) goto oob_report else goto check_succ */
+            if (!LLVMBuildCondBr(comp_ctx->builder, cmp, oob_report_block,
+                                 check_succ)) {
+                aot_set_last_error("llvm build cond br failed.");
+                goto fail;
+            }
+
+            /* Emit report block */
+            LLVMPositionBuilderAtEnd(comp_ctx->builder, oob_report_block);
+
+            /* Prepare/declare trace function: void aot_memory_oob_trace(void*,u64,u64,u32,u64,u64,u64); */
+            LLVMTypeRef trace_param_types[7], trace_func_type, trace_func_ptr_type;
+            LLVMValueRef trace_params[7], trace_func;
+            trace_param_types[0] = INT8_PTR_TYPE; /* inst */
+            trace_param_types[1] = I64_TYPE;      /* offset1 */
+            trace_param_types[2] = I64_TYPE;      /* bound */
+            trace_param_types[3] = I32_TYPE;      /* bytes */
+            trace_param_types[4] = I64_TYPE;      /* addr raw */
+            trace_param_types[5] = I64_TYPE;      /* offset_const raw */
+            trace_param_types[6] = I64_TYPE;      /* mem_base addr */
+            if (!(trace_func_type = LLVMFunctionType(VOID_TYPE, trace_param_types, 7, false))) {
+                aot_set_last_error("create trace function type failed.");
+                goto fail;
+            }
+
+            /* Get or add the function symbol (external definition expected) */
+            if (!(trace_func = LLVMGetNamedFunction(func_ctx->module, "aot_memory_oob_trace"))
+                && !(trace_func = LLVMAddFunction(func_ctx->module, "aot_memory_oob_trace", trace_func_type))) {
+                aot_set_last_error("add trace function failed.");
+                goto fail;
+            }
+
+            /* Cast/extend offset1 & mem_check_bound to i64 */
+            LLVMValueRef offset1_i64 = offset1, bound_i64 = mem_check_bound;
+            if (LLVMTypeOf(offset1) != I64_TYPE) {
+                if (!(offset1_i64 = LLVMBuildZExt(comp_ctx->builder, offset1, I64_TYPE, "offset1_i64"))) {
+                    aot_set_last_error("zext offset1 failed");
+                    goto fail;
+                }
+            }
+            if (LLVMTypeOf(mem_check_bound) != I64_TYPE) {
+                if (!(bound_i64 = LLVMBuildZExt(comp_ctx->builder, mem_check_bound, I64_TYPE, "bound_i64"))) {
+                    aot_set_last_error("zext bound failed");
+                    goto fail;
+                }
+            }
+
+            /* Promote raw addr and offset_const for logging */
+            LLVMValueRef addr_raw_i64 = addr, offset_const_i64 = offset_const;
+            if (LLVMTypeOf(addr_raw_i64) != I64_TYPE) {
+                if (!(addr_raw_i64 = LLVMBuildZExt(comp_ctx->builder, addr_raw_i64, I64_TYPE, "addr_raw_i64"))) {
+                    aot_set_last_error("zext addr failed");
+                    goto fail;
+                }
+            }
+            if (LLVMTypeOf(offset_const_i64) != I64_TYPE) {
+                if (!(offset_const_i64 = LLVMBuildZExt(comp_ctx->builder, offset_const_i64, I64_TYPE, "offset_const_i64"))) {
+                    aot_set_last_error("zext offset_const failed");
+                    goto fail;
+                }
+            }
+            /* mem_base_addr pointer to int */
+            LLVMValueRef mem_base_i64 = NULL;
+            if (!(mem_base_i64 = LLVMBuildPtrToInt(comp_ctx->builder, mem_base_addr, I64_TYPE, "mem_base_i64"))) {
+                aot_set_last_error("ptrtoint mem_base failed");
+                goto fail;
+            }
+
+            trace_params[0] = func_ctx->aot_inst; /* module instance */
+            trace_params[1] = offset1_i64;
+            trace_params[2] = bound_i64;
+            trace_params[3] = I32_CONST(bytes);
+            CHECK_LLVM_CONST(trace_params[3]);
+            trace_params[4] = addr_raw_i64;
+            trace_params[5] = offset_const_i64;
+            trace_params[6] = mem_base_i64;
+
+            if (!LLVMBuildCall2(comp_ctx->builder, trace_func_type, trace_func, trace_params, 7, "")) {
+                aot_set_last_error("build trace call failed");
+                goto fail;
+            }
+
+            /* Now raise the exception unconditionally */
+            if (!aot_emit_exception(comp_ctx, func_ctx,
+                                    EXCE_OUT_OF_BOUNDS_MEMORY_ACCESS, false, NULL,
+                                    NULL)) {
+                goto fail;
+            }
+
+            /* Continue building at check_succ (normal path) */
+            LLVMPositionBuilderAtEnd(comp_ctx->builder, check_succ);
+        } while (0);
+#else /* WAMR_MEMORY_OOB_TRACE */
         if (!aot_emit_exception(comp_ctx, func_ctx,
                                 EXCE_OUT_OF_BOUNDS_MEMORY_ACCESS, true, cmp,
                                 check_succ)) {
             goto fail;
         }
+#endif /* WAMR_MEMORY_OOB_TRACE */
 
         SET_BUILD_POS(check_succ);
 

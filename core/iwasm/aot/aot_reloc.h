@@ -218,6 +218,11 @@ typedef struct {
     REG_LLVM_PGO_SYM()                    \
     REG_GC_SYM()                          \
     REG_STRINGREF_SYM()                   \
+    /* Optional memory OOB trace hook */ \
+    /* Enabled only if WAMR_MEMORY_OOB_TRACE is defined at build time */ \
+#ifdef WAMR_MEMORY_OOB_TRACE \
+    REG_SYM(aot_memory_oob_trace),        \
+#endif
 
 #define CHECK_RELOC_OFFSET(data_size) do {              \
     if (!check_reloc_offset(target_section_size,        \

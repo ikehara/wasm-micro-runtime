@@ -20,6 +20,12 @@ list (APPEND c_source_all
   ${IWASM_AOT_DIR}/aot_runtime.c
 )
 
+# Optional memory OOB trace helper
+if (DEFINED WAMR_MEMORY_OOB_TRACE AND WAMR_MEMORY_OOB_TRACE)
+  add_definitions(-DWAMR_MEMORY_OOB_TRACE)
+  list (APPEND c_source_all ${IWASM_AOT_DIR}/aot_memory_trace.c)
+endif()
+
 if (WAMR_BUILD_LINUX_PERF EQUAL 1)
   list (APPEND c_source_all ${IWASM_AOT_DIR}/aot_perf_map.c)
 endif ()
